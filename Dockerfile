@@ -1,36 +1,29 @@
 # Use official Python base image
 FROM python:3.10-slim
 
-# System deps (faiss wheel works; libgomp1 improves BLAS perf)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set workdir
-WORKDIR /app
-
-# Avoid pyc files and force unbuffered logs
+# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Copy and install dependencies
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# Set working directory
+WORKDIR /app
 
-# Copy app
-COPY app.py /app/app.py
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# (Optional) env var for the API key; you can also use Streamlit secrets locally via TOML
-# ENV GEMINI_API_KEY=your_key_here
+# Copy requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose default Streamlit port
+# Copy app code
+COPY . .
+
+# Expose port for Streamlit
 EXPOSE 8501
 
-# Streamlit config to be friendlier in containers
-ENV STREAMLIT_SERVER_HEADLESS=true
-ENV STREAMLIT_SERVER_PORT=8501
-ENV STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
-
-# Run
-CMD ["streamlit", "run", "app.py"]
+# Run Streamlit app
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
