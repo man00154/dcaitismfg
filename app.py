@@ -15,7 +15,6 @@ API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}
 # API Key helper
 # ------------------------------
 def get_api_key() -> str:
-    # Priority: Streamlit secrets → ENV
     key = None
     if hasattr(st, "secrets"):
         key = st.secrets.get("GEMINI_API_KEY", None)
@@ -145,42 +144,79 @@ def gemini_generate(*args, **kwargs) -> str:
     return try_run(gemini_generate_async(*args, **kwargs))
 
 # ------------------------------
+# Agentic AI Layer
+# ------------------------------
+class AgenticAI:
+    def __init__(self, rag: SimpleRAG, api_key: str):
+        self.rag = rag
+        self.api_key = api_key
+
+    def analyze(self, query: str) -> str:
+        context_docs = self.rag.similarity_search(query, k=3)
+        context_texts = "\n\n".join([doc["text"] for doc in context_docs])
+        prompt = f"""
+        Incident Description:
+        {query}
+
+        Retrieved Knowledge:
+        {context_texts}
+
+        Task: Perform an RCA (root cause analysis), including:
+        - Symptoms & Impact
+        - Root Cause
+        - Evidence
+        - Immediate Solution
+        - Preventive Measures
+        """
+        return gemini_generate(
+            api_key=self.api_key,
+            user_prompt=prompt,
+            system_prompt="You are an expert Data Center SRE performing RCA with actionable solutions.",
+            temperature=0.2,
+            max_output_tokens=1000,
+        )
+
+# ------------------------------
 # Streamlit UI
 # ------------------------------
-st.set_page_config(page_title="MANISH SINGH - Data Center RCA (Gemini)", layout="wide")
-st.title("🧭 MANISH SINGH -  Intelligent Data Center RCA")
+st.set_page_config(page_title="Intelligent Data Center RCA", layout="wide")
+st.title("🧭 MANISH SINGH - Intelligent Data Center RCA (with LLM + RAG + Agentic AI)")
 
 with st.sidebar:
     st.subheader("🔐 API Key")
-    manual_key = st.text_input("Enter GEMINI_API_KEY (optional)", type="password", key="api_key_input")
+    manual_key = st.text_input("Enter GEMINI_API_KEY", type="password", key="api_key_input")
     api_key = manual_key or get_api_key()
     if not api_key:
-        st.error("❌ GEMINI_API_KEY is missing. Please add it in `.streamlit/secrets.toml` or enter manually above.")
+        st.error("❌ GEMINI_API_KEY is missing. Please set it.")
 
-    st.subheader("⚙️ Model Settings")
-    temp = st.slider("Temperature", 0.0, 1.0, 0.2, 0.05, key="temp_slider")
+    st.subheader("📄 Knowledge Base Upload")
+    uploaded_files = st.file_uploader("Upload PDFs", type=["pdf"], accept_multiple_files=True)
+
+# RAG setup
+rag = SimpleRAG()
+if uploaded_files:
+    for pdf in uploaded_files:
+        reader = PdfReader(pdf)
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            if text.strip():
+                chunks = chunk_text(text)
+                rag.add_documents(chunks, [{"source": pdf.name}] * len(chunks))
+    rag.build()
 
 incident_text = st.text_area(
     "🧩 Describe the Incident",
-    value="At 10:15 IST, multiple microservices in AZ-2 reported elevated 5xx rates and latency spikes. Ingress shows connection resets. DB connection pool saturation observed. A deployment occurred 5 minutes before the spike.",
+    value="At 10:15 IST, multiple microservices in AZ-2 reported elevated 5xx errors. Deployment occurred 5 minutes before.",
     height=160,
     key="incident_input"
 )
 
 if st.button("🔍 Analyze RCA", key="analyze_button"):
     if not api_key:
-        st.error("API key required to analyze.")
+        st.error("API key required.")
     else:
+        agent = AgenticAI(rag, api_key)
         with st.spinner("Analyzing incident..."):
-            final_report = gemini_generate(
-                api_key=api_key,
-                user_prompt=f"Perform a root cause analysis and remediation plan for this incident:\n\n{incident_text}",
-                system_prompt=(
-                    "You are a senior data center SRE. Provide RCA with evidence, impact, remediation, and prevention steps. "
-                    "Also include a clear solution in your response."
-                ),
-                temperature=temp,
-                max_output_tokens=1200,
-            )
+            final_report = agent.analyze(incident_text)
         st.subheader("📄 RCA Report")
         st.markdown(final_report)
