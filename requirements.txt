@@ -1,7 +1,8 @@
 streamlit
-aiohttp
 pypdf
-sentence-transformers
-faiss-cpu
+python-dotenv
+requests
+aiohttp
 numpy
-scikit-learn
+faiss-cpu
+sentence-transformers
